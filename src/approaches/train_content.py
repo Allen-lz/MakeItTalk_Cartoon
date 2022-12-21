@@ -39,20 +39,20 @@ class Audio2landmark_model():
         self.std_face_id = torch.tensor(self.std_face_id, requires_grad=False, dtype=torch.float).to(device)
 
         self.train_data = Audio2landmark_Dataset(dump_dir=opt_parser.dump_dir,
-                                                dump_name='autovc_retrain_mel',
-                                                status='train',
-                                               num_window_frames=opt_parser.num_window_frames,
-                                               num_window_step=opt_parser.num_window_step)
+                                                 dump_name='autovc_align',  # autovc_retrain_mel
+                                                 status='train',
+                                                 num_window_frames=opt_parser.num_window_frames,
+                                                 num_window_step=opt_parser.num_window_step)
         self.train_dataloader = torch.utils.data.DataLoader(self.train_data, batch_size=opt_parser.batch_size,
                                                            shuffle=False, num_workers=0,
                                                            collate_fn=self.train_data.my_collate_in_segments_noemb)
         print('TRAIN num videos: {}'.format(len(self.train_data)))
 
         self.eval_data = Audio2landmark_Dataset(dump_dir=opt_parser.dump_dir,
-                                                 dump_name='autovc_retrain_mel',
-                                                 status='test',
-                                                 num_window_frames=opt_parser.num_window_frames,
-                                                 num_window_step=opt_parser.num_window_step)
+                                                dump_name='autovc_align',  # autovc_retrain_mel
+                                                status='train',  # test
+                                                num_window_frames=opt_parser.num_window_frames,
+                                                num_window_step=opt_parser.num_window_step)
         self.eval_dataloader = torch.utils.data.DataLoader(self.eval_data, batch_size=opt_parser.batch_size,
                                                             shuffle=False, num_workers=0,
                                                             collate_fn=self.eval_data.my_collate_in_segments_noemb)
@@ -88,16 +88,20 @@ class Audio2landmark_model():
         fl_dis_pred, _ = self.C(aus, face_id)
 
         ''' lip region weight '''
+
+        # 这个应该是衡量嘴开合的幅度,
         w = torch.abs(fls[:, 0, 66 * 3 + 1] - fls[:, 0, 62 * 3 + 1])
+
+        # 幅度越大的话权重就会越小
         w = torch.tensor([1.0]).to(device) / (w * 4.0 + 0.1)
         w = w.unsqueeze(1)
         lip_region_w = torch.ones((fls.shape[0], 204)).to(device)
-        lip_region_w[:, 48*3:] = torch.cat([w] * 60, dim=1)
+        lip_region_w[:, 48*3:] = torch.cat([w] * 60, dim=1)  # 除了嘴部区域的权重要计算, 其余部位的都默认为1
         lip_region_w = lip_region_w.detach().clone().requires_grad_(False)
 
         if (self.opt_parser.use_lip_weight):
             # loss = torch.mean(torch.mean((fl_dis_pred + face_id - fls[:, 0, :]) ** 2, dim=1) * w)
-            loss = torch.mean(torch.abs(fl_dis_pred +face_id[0:1].detach() - fls_gt) * lip_region_w)
+            loss = torch.mean(torch.abs(fl_dis_pred + face_id[0:1].detach() - fls_gt) * lip_region_w)
         else:
             # loss = self.loss_mse(fl_dis_pred + face_id, fls[:, 0, :])
             loss = torch.nn.functional.l1_loss(fl_dis_pred+face_id[0:1].detach(), fls_gt)
@@ -109,6 +113,7 @@ class Audio2landmark_model():
 
         ''' use laplacian smooth loss '''
         if (self.opt_parser.lambda_laplacian_smooth_loss > 0.0):
+
             n1 = [1] + list(range(0, 16)) + [18] + list(range(17, 21)) + [23] + list(range(22, 26)) + \
                  [28] + list(range(27, 35)) + [41] + list(range(36, 41)) + [47] + list(range(42, 47)) + \
                  [59] + list(range(48, 59)) + [67] + list(range(60, 67))
@@ -153,32 +158,39 @@ class Audio2landmark_model():
             data = self.eval_data
             dataloader = self.eval_dataloader
             status = 'EVAL'
-
+        # 打乱序列, 并从中抽取self.opt_parser.random_clip_num个数
+        # 这个应该是在随机可视化的时候会用到
         random_clip_index = np.random.permutation(len(dataloader))[0:self.opt_parser.random_clip_num]
-        print('random visualize clip index', random_clip_index)
 
         # Step 2: train for each batch
         for i, batch in enumerate(dataloader):
 
             global_id, video_name = data[i][0][1][0], data[i][0][1][1][:-4]
+
             inputs_fl, inputs_au = batch
             inputs_fl_ori, inputs_au_ori = inputs_fl.to(device), inputs_au.to(device)
+
+            # inputs_au_ori.shape = torch.Size([14160, 18, 80])
+            # inputs_fl_ori.shape = torch.Size([14160, 18, 204])
 
             std_fls_list, fls_pred_face_id_list, fls_pred_pos_list = [], [], []
             seg_bs = 512
 
             ''' pick a most closed lip frame from entire clip data '''
             close_fl_list = inputs_fl_ori[::10, 0, :]
+            # 每间隔10帧从中取得对应的图像, 并从中选择出一个最精确的闭嘴状态下的, 作为一个初始状态
+            # close_fl_list.shape = torch.Size([1416, 204])
             idx = self.__close_face_lip__(close_fl_list.detach().cpu().numpy())
-            input_face_id = close_fl_list[idx:idx + 1, :]
+            input_face_id = close_fl_list[idx:idx + 1, :]  # torch.Size([1, 204])
 
             ''' register face '''
             if (self.opt_parser.use_reg_as_std):
                 landmarks = input_face_id.detach().cpu().numpy().reshape(68, 3)
-                frame_t_shape = landmarks[self.t_shape_idx, :]
+                frame_t_shape = landmarks[self.t_shape_idx, :]  # 我猜测, frame_t_shape应该是锚点, 是要与self.anchor_t_shape计算一个对齐的
                 T, distance, itr = icp(frame_t_shape, self.anchor_t_shape)
-                landmarks = np.hstack((landmarks, np.ones((68, 1))))
-                registered_landmarks = np.dot(T, landmarks.T).T
+                landmarks = np.hstack((landmarks, np.ones((68, 1))))  # 转成齐次矩阵
+                registered_landmarks = np.dot(T, landmarks.T).T  # 与anchor对齐
+                # 得到对齐之后的input_face_id
                 input_face_id = torch.tensor(registered_landmarks[:, 0:3].reshape(1, 204), requires_grad=False,
                                              dtype=torch.float).to(device)
 
@@ -187,6 +199,7 @@ class Audio2landmark_model():
                 std_fls_list, fls_pred_face_id_list, fls_pred_pos_list = [], [], []
 
                 if (is_training):
+                    # 在这里随机一个起点, 就当是增加了数据的多样性了吧
                     rand_start = np.random.randint(0, inputs_fl_ori.shape[0] // 5, 1).reshape(-1)
                     inputs_fl = inputs_fl_ori[rand_start[0]:]
                     inputs_au = inputs_au_ori[rand_start[0]:]
@@ -199,6 +212,9 @@ class Audio2landmark_model():
                     # Step 3.1: load segments
                     inputs_fl_segments = inputs_fl[j: j + seg_bs]
                     inputs_au_segments = inputs_au[j: j + seg_bs]
+
+                    # inputs_fl_segments.shape = torch.Size([512, 18, 204])
+                    # inputs_au_segments.shape = torch.Size([512, 18, 80])
                     fl_std = inputs_fl_segments[:, 0, :].data.cpu().numpy()
 
                     if(inputs_fl_segments.shape[0] < 10):
@@ -292,8 +308,10 @@ class Audio2landmark_model():
         eval_loss = {key: Record(['epoch', 'batch']) for key in ['loss']}
 
         for epoch in range(self.opt_parser.nepoch):
+            # 训练
             self.__train_pass__(epoch=epoch, log_loss=train_loss)
 
+            # 验证
             with torch.no_grad():
                 self.__train_pass__(epoch, eval_loss, is_training=False)
 

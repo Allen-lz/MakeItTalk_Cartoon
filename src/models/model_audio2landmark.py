@@ -71,14 +71,16 @@ class Audio2landmark_content(nn.Module):
 
 
     def forward(self, au, face_id):
-
+        # aus.shape =              torch.Size([287, 18, 80])
+        # residual_face_id.shape = torch.Size([287, 204])
         inputs = au
         if(self.use_prior_net):
             inputs = self.fc_prior(inputs.contiguous().view(-1, self.in_size))
             inputs = inputs.view(-1, self.num_window_frames, self.lstm_size)
 
+        # torch.Size([287, 18, 256])
         output, (hn, cn) = self.bilstm(inputs)
-        output = output[:, -1, :]
+        output = output[:, -1, :]  # 这里只要最后的结果 output.shape = torch.Size([287, 256])
 
         if(face_id.shape[0] == 1):
             face_id = face_id.repeat(output.shape[0], 1)
@@ -86,6 +88,9 @@ class Audio2landmark_content(nn.Module):
 
         output2 = self.fc(output2)
         # output += face_id
+
+        # print(output2.shape, face_id.shape)
+        # torch.Size([287, 204]) torch.Size([287, 204])
 
         return output2, face_id
 
@@ -354,32 +359,51 @@ class Audio2landmark_pos(nn.Module):
 
 
     def forward(self, au, emb, face_id, fls, z, add_z_spk=False, another_emb=None):
+        """
+        # aus.shape =              torch.Size([287, 18, 80])
+        # embs.shape =             torch.Size([287, 256])
+        # face_id.shape =          torch.Size([287, 204])  # landmark的baseline
+        # fls_without_traj.shape = torch.Size([287, 204])
+        # z.shape =                torch.Size([287, 128])
+
+
+        但是这个实现和论文里面的有出路, 论文里面是先用content预测一个lm, 再基于这个lm和spk预测final lm
+        而这里就是将content和spk cat在一步预测出最后的结果
+        """
 
         # audio
+        # 因为这里全都统一了音色(全都转成了奥巴马的音色), 所以可以看做content
         audio_encode, (_, _) = self.audio_content_encoder(au)
         audio_encode = audio_encode[:, -1, :]
 
+        # 先分别对语音的content和spk进行编码
         if(self.use_audio_projection):
             audio_encode = self.audio_projection(audio_encode)
 
         # spk
         spk_encode = self.spk_emb_encoder(emb)
-        if(add_z_spk):
+        if add_z_spk:
+            # 这里是对spk_encoder加入一点噪声, 使其变得更加的鲁棒
             z_spk = torch.tensor(torch.randn(spk_encode.shape)*0.01, requires_grad=False, dtype=torch.float).to(device)
             spk_encode = spk_encode + z_spk
 
         # comb
         # comb_input = torch.cat((audio_encode, spk_encode), dim=1)
         # comb_encode = self.comb_mlp(comb_input)
+        #
+        # 然后对将音频的content和spk combine在一起,
         comb_encode = torch.cat((audio_encode, spk_encode, z), dim=1)
         src_feat = comb_encode.unsqueeze(0)
 
         e_outputs = self.encoder(src_feat)[0]
 
+        # 不是很清楚为啥这里要cat一些0(z)
         e_outputs = torch.cat((e_outputs, z), dim=1)
 
+        # 预测得到关键点的偏移
         fl_pred = self.out(e_outputs)
 
+        # face_id: 在这里走了一遍但是没有任何的操作就返回了, 意义何在
         return fl_pred, face_id[0:1, :], spk_encode
 
 

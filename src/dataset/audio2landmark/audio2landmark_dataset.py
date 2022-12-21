@@ -24,38 +24,46 @@ class Audio2landmark_Dataset(data.Dataset):
 
     def __init__(self, dump_dir, dump_name, num_window_frames, num_window_step, status):
         self.dump_dir = dump_dir
-        self.num_window_frames = num_window_frames
-        self.num_window_step = num_window_step
+        self.num_window_frames = num_window_frames  # 18
+        self.num_window_step = num_window_step  # 1
 
         # Step 1 : load A / V data from dump files
         print('Loading Data {}_{}'.format(dump_name, status))
 
+        # 训练的时候就是只需要下面的两个数据, 只要解析了下面的两个数据, 就能使用自己的数据集
+        # 而生成这两个数据集的方法在demo中是有提到的
         with open(os.path.join(self.dump_dir, '{}_{}_au.pickle'.format(dump_name, status)), 'rb') as fp:
-            self.au_data = pickle.load(fp)
+            self.au_data = pickle.load(fp)  # 里面包含的被转换到奥巴马音色的内容编码, 和 speaker的embedding [(305, 80),], [(256,)]
         with open(os.path.join(self.dump_dir, '{}_{}_fl.pickle'.format(dump_name, status)), 'rb') as fp:
-            self.fl_data = pickle.load(fp)
+            self.fl_data = pickle.load(fp)  # 里面包含等待预测的关键点 和 speaker的embedding  [(305, 204),], [(256, )]
 
         valid_idx = list(range(len(self.au_data)))
 
         random.seed(0)
         random.shuffle(valid_idx)
+
         self.fl_data = [self.fl_data[i] for i in valid_idx]
         self.au_data = [self.au_data[i] for i in valid_idx]
 
+        # 这里的数据集的长度只有1, 可能音频太短了
+
+        # 从标准的mel频谱中计算得到mean和std, 用于对测试的数据进行标准化
         au_mean_std = np.loadtxt('src/dataset/utils/MEAN_STD_AUTOVC_RETRAIN_MEL_AU.txt')
         au_mean, au_std = au_mean_std[0:au_mean_std.shape[0]//2], au_mean_std[au_mean_std.shape[0]//2:]
-
+        # 对待测试的音频文件进行标准化
         self.au_data = [((au - au_mean) / au_std, info) for au, info in self.au_data]
 
-
     def __len__(self):
-        return  len(self.fl_data)
+        return len(self.fl_data)
 
     def __getitem__(self, item):
         # print('-> get item {}: {} {}'.format(item, self.fl_data[item][1][0], self.fl_data[item][1][1]))
         return self.fl_data[item], self.au_data[item]
 
     def my_collate_in_segments(self, batch):
+        """
+        就是 __getitem__() 之后还会过一遍这个
+        """
         fls, aus, embs = [], [], []
         for fl, au in batch:
             fl_data, au_data, emb_data = fl[0], au[0], au[1][2]
@@ -64,8 +72,13 @@ class Audio2landmark_Dataset(data.Dataset):
             fl_data = torch.tensor(fl_data, dtype=torch.float, requires_grad=False)
             au_data = torch.tensor(au_data, dtype=torch.float, requires_grad=False)
             emb_data = torch.tensor(emb_data, dtype=torch.float, requires_grad=False)
+            # torch.Size([305, 204]) torch.Size([305, 80]) torch.Size([256])
+            # print(fl_data.shape, au_data.shape, emb_data.shape)
 
             # window shift data
+            # self.num_window_step = 1
+            # self.num_window_frames = 18
+            # - self.num_window_frames是保证最后一个窗口可以被获取(不用padding)
             fls += [fl_data[i:i + self.num_window_frames]
                     for i in range(0, fl_data.shape[0] - self.num_window_frames, self.num_window_step)]
             aus += [au_data[i:i + self.num_window_frames]
@@ -76,6 +89,9 @@ class Audio2landmark_Dataset(data.Dataset):
         aus = torch.stack(aus, dim=0)
         embs = torch.stack(embs, dim=0)
 
+        # print(fls.shape)
+        # print(aus.shape)
+        # print(embs.shape)
         return fls, aus, embs
 
     def my_collate_in_segments_noemb(self, batch):

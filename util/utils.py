@@ -327,6 +327,10 @@ def get_puppet_info(DEMO_CH, ROOT_DIR):
 
 
 def close_input_face_mouth(shape_3d, p1=0.7, p2=0.5):
+    """
+    使用规则将人的关键点的嘴闭上
+    """
+
     shape_3d = shape_3d.reshape((1, 68, 3))
     index1 = list(range(60 - 1, 55 - 1, -1))
     index2 = list(range(68 - 1, 65 - 1, -1))
@@ -346,10 +350,14 @@ def close_input_face_mouth(shape_3d, p1=0.7, p2=0.5):
     return shape_3d
 
 def norm_input_face(shape_3d):
-    scale = 1.6 / (shape_3d[0, 0] - shape_3d[16, 0])
-    shift = - 0.5 * (shape_3d[0, 0:2] + shape_3d[16, 0:2])
+    scale = 1.6 / (shape_3d[0, 0] - shape_3d[16, 0])  # 计算脸宽
+    shift = - 0.5 * (shape_3d[0, 0:2] + shape_3d[16, 0:2])  # 计算出脸的中心位置
+    # 这里是标准化, 只是因为scale使用的是倒数, shift使用减数, 所以会写成这样
     shape_3d[:, 0:2] = (shape_3d[:, 0:2] + shift) * scale
+
+    # 掏出标准的关键点, 替换掉以下的三个点
     face_std = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt').reshape(68, 3)
+    # 这里是将标准脸的深度给替换到了shape_3d上去
     shape_3d[:, -1] = face_std[:, -1] * 0.1
     shape_3d[:, 0:2] = -shape_3d[:, 0:2]
 

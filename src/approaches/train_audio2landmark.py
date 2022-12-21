@@ -11,6 +11,13 @@
 import os
 import torch.nn.parallel
 import torch.utils.data
+
+import sys
+sys.path.append("../..")
+sys.path.append("..")
+sys.path.append(".")
+
+
 from src.dataset.audio2landmark.audio2landmark_dataset import Audio2landmark_Dataset
 from src.models.model_audio2landmark import *
 from util.utils import get_n_params
@@ -32,15 +39,16 @@ class Audio2landmark_model():
         self.opt_parser = opt_parser
         self.std_face_id = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt')
         if(jpg_shape is not None):
+            # 如果有当前对象的标准3d_shape就用当前测试对象的3d_shape
             self.std_face_id = jpg_shape
-        self.std_face_id = self.std_face_id.reshape(1, 204)
+        self.std_face_id = self.std_face_id.reshape(1, 204)  # (68, 3)
         self.std_face_id = torch.tensor(self.std_face_id, requires_grad=False, dtype=torch.float).to(device)
 
         self.eval_data = Audio2landmark_Dataset(dump_dir='examples/dump',
                                                 dump_name='random',
                                                 status='val',
-                                               num_window_frames=18,
-                                               num_window_step=1)
+                                                num_window_frames=18,
+                                                num_window_step=1)
         self.eval_dataloader = torch.utils.data.DataLoader(self.eval_data, batch_size=1,
                                                            shuffle=False, num_workers=0,
                                                            collate_fn=self.eval_data.my_collate_in_segments)
@@ -48,14 +56,17 @@ class Audio2landmark_model():
 
         # Step 3: Load model
         self.G = Audio2landmark_pos(drop_out=0.5,
-                                 spk_emb_enc_size=128,
-                                 c_enc_hidden_size=256,
-                                 transformer_d_model=32, N=2, heads=2,
-                                 z_size=128, audio_dim=256)
+                                    spk_emb_enc_size=128,
+                                    c_enc_hidden_size=256,
+                                    transformer_d_model=32,
+                                    N=2,
+                                    heads=2,
+                                    z_size=128,
+                                    audio_dim=256)
         print('G: Running on {}, total num params = {:.2f}M'.format(device, get_n_params(self.G)/1.0e6))
 
         model_dict = self.G.state_dict()
-        ckpt = torch.load(opt_parser.load_a2l_G_name)
+        ckpt = torch.load(opt_parser.load_a2l_G_name)  # examples/ckpt/ckpt_speaker_branch.pth
         pretrained_dict = {k: v for k, v in ckpt['G'].items() if k.split('.')[0] not in ['comb_mlp']}
         model_dict.update(pretrained_dict)
         self.G.load_state_dict(model_dict)
@@ -68,16 +79,18 @@ class Audio2landmark_model():
                                       in_size=80, use_prior_net=True,
                                       bidirectional=False, drop_out=0.5)
 
-        ckpt = torch.load(opt_parser.load_a2l_C_name)
+        ckpt = torch.load(opt_parser.load_a2l_C_name)  # examples/ckpt/ckpt_content_branch.pth
         self.C.load_state_dict(ckpt['model_g_face_id'])
         # self.C.load_state_dict(ckpt['C'])
         print('======== LOAD PRETRAINED FACE ID MODEL {} ========='.format(opt_parser.load_a2l_C_name))
         self.C.to(device)
 
+        # 取出标准的关键点
         self.t_shape_idx = (27, 28, 29, 30, 33, 36, 39, 42, 45)
-        self.anchor_t_shape = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt')
-        self.anchor_t_shape = self.anchor_t_shape[self.t_shape_idx, :]
+        self.anchor_t_shape = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt')  # (68, 3)
+        self.anchor_t_shape = self.anchor_t_shape[self.t_shape_idx, :]  # (9, 3)
 
+        # 其实我还是不太清楚这个是什么, 但是可以确定是一个预设的东西
         with open(os.path.join('examples', 'dump', 'emb.pickle'), 'rb') as fp:
             self.test_embs = pickle.load(fp)
 
@@ -88,27 +101,38 @@ class Audio2landmark_model():
 
     def __train_face_and_pos__(self, fls, aus, embs, face_id, smooth_win=31, close_mouth_ratio=.99):
 
-        fls_without_traj = fls[:, 0, :].detach().clone().requires_grad_(False)
+        # torch.Size([287, 204]), 就是所有窗口中第一帧的landmark
+        fls_without_traj = fls[:, 0, :].detach().clone().requires_grad_(False)  # 一开始里面应该全是0
 
+        # face_id是第一帧的landmark
         if (face_id.shape[0] == 1):
             face_id = face_id.repeat(aus.shape[0], 1)
         face_id = face_id.requires_grad_(False)
-        baseline_face_id = face_id.detach()
-
+        baseline_face_id = face_id.detach()  # 使用视频中人脸的第一帧作为landmark的baseline,
+        # z = torch.Size([287, 128])
         z = torch.tensor(torch.zeros(aus.shape[0], 128), requires_grad=False, dtype=torch.float).to(device)
+
+        # aus.shape =              torch.Size([287, 18, 80])
+        # embs.shape =             torch.Size([287, 256])
+        # face_id.shape =          torch.Size([287, 204])  # landmark的baseline, 标准人脸的landmark
+        # fls_without_traj.shape = torch.Size([287, 204])
+        # z.shape =                torch.Size([287, 128])
+
+        # fl_dis_pred = torch.Size([287, 204])
+        # spk_encode = torch.Size([287, 128])
         fl_dis_pred, _, spk_encode = self.G(aus, embs * 3.0, face_id, fls_without_traj, z, add_z_spk=False)
 
         # ADD CONTENT
         from scipy.signal import savgol_filter
         smooth_length = int(min(fl_dis_pred.shape[0]-1, smooth_win) // 2 * 2 + 1)
         fl_dis_pred = savgol_filter(fl_dis_pred.cpu().numpy(), smooth_length, 3, axis=0)
-    #
+        #
         ''' ================ close pose-branch mouth ================== '''
         fl_dis_pred = fl_dis_pred.reshape((-1, 68, 3))
         index1 = list(range(60-1, 55-1, -1))
         index2 = list(range(68-1, 65-1, -1))
         mean_out = 0.5 * fl_dis_pred[:, 49:54] + 0.5 * fl_dis_pred[:, index1]
-        fl_dis_pred[:, 49:54] =  mean_out * close_mouth_ratio + fl_dis_pred[:, 49:54] * (1 - close_mouth_ratio)
+        fl_dis_pred[:, 49:54] = mean_out * close_mouth_ratio + fl_dis_pred[:, 49:54] * (1 - close_mouth_ratio)
         fl_dis_pred[:, index1] = mean_out * close_mouth_ratio + fl_dis_pred[:, index1] * (1 - close_mouth_ratio)
         mean_in = 0.5 * (fl_dis_pred[:, 61:64] + fl_dis_pred[:, index2])
         fl_dis_pred[:, 61:64] = mean_in * close_mouth_ratio + fl_dis_pred[:, 61:64] * (1 - close_mouth_ratio)
@@ -121,8 +145,14 @@ class Audio2landmark_model():
         residual_face_id = baseline_face_id
 
         # ''' CALIBRATION '''
+
+        # 校准
+        # aus.shape =              torch.Size([287, 18, 80])
+        # residual_face_id.shape = torch.Size([287, 204])
         baseline_pred_fls, _ = self.C(aus[:, 0:18, :], residual_face_id)
+
         baseline_pred_fls = self.__calib_baseline_pred_fls__(baseline_pred_fls)
+        # 使用(aus+spk)预测得fl_dis_pred与使用(aus)预测得到的baseline_pred_fls进行叠加
         fl_dis_pred += baseline_pred_fls
 
         return fl_dis_pred, face_id[0:1, :]
@@ -136,6 +166,11 @@ class Audio2landmark_model():
         return baseline_pred_fls
 
     def __calib_baseline_pred_fls__(self, baseline_pred_fls, ratio=0.5):
+        """
+        这个步骤主要的作用就是调整一下关键点的分布, 尤其是嘴部的关键点
+        """
+        # baseline_pred_fls.shape = torch.Size([287, 204])
+
         np_fl_dis_pred = baseline_pred_fls.detach().cpu().numpy()
         K = int(np_fl_dis_pred.shape[0] * ratio)
         for calib_i in range(204):
@@ -150,8 +185,8 @@ class Audio2landmark_model():
     def __train_pass__(self, au_emb=None, centerize_face=False, no_y_rotation=False, vis_fls=False):
 
         # Step 1: init setup
-        self.G.eval()
-        self.C.eval()
+        self.G.eval()  # speaker
+        self.C.eval()  # content
         data = self.eval_data
         dataloader = self.eval_dataloader
 
@@ -161,12 +196,16 @@ class Audio2landmark_model():
             global_id, video_name = data[i][0][1][0], data[i][0][1][1][:-4]
 
             # Step 2.1: load batch data from dataloader (in segments)
+            # 分别是等待预测的关键点, 被转成目标人物的content和speaker embedding
+
+            # 数据中被分出了287个windows
+            # torch.Size([287, 18, 204]) torch.Size([287, 18, 80]) torch.Size([287, 256])
             inputs_fl, inputs_au, inputs_emb = batch
 
             keys = self.opt_parser.reuse_train_emb_list
             if(len(keys) == 0):
                 keys = ['audio_embed']
-            for key in keys: # ['45hn7-LXDX8']: #['sxCbrYjBsGA']:#
+            for key in keys:  # ['45hn7-LXDX8']: #['sxCbrYjBsGA']:#
                 # load saved emb
                 if(au_emb is None):
                     emb_val = self.test_embs[key]
@@ -187,15 +226,16 @@ class Audio2landmark_model():
                     inputs_au_segments = inputs_au[j: j + seg_bs]
                     inputs_emb_segments = inputs_emb[j: j + seg_bs]
 
-                    if(inputs_fl_segments.shape[0] < 10):
+                    if(inputs_fl_segments.shape[0] < 10):  # 时间片段的长度少于10就不进行处理, 直接跳过
                         continue
 
-                    input_face_id = self.std_face_id
+                    input_face_id = self.std_face_id  # 这个就是标准的face landmark
 
                     fl_dis_pred_pos, input_face_id = \
                         self.__train_face_and_pos__(inputs_fl_segments, inputs_au_segments, inputs_emb_segments,
                                                            input_face_id)
 
+                    # 将预测出来的lm_offset + anchor
                     fl_dis_pred_pos = (fl_dis_pred_pos + input_face_id).data.cpu().numpy()
                     ''' solve inverse lip '''
                     fl_dis_pred_pos = self.__solve_inverse_lip2__(fl_dis_pred_pos)
@@ -220,6 +260,9 @@ class Audio2landmark_model():
                     fake_fls_np = fake_fls_np.reshape((-1, 68 * 3))
 
                 if(no_y_rotation):
+                    """
+                    这个分支没有被启用
+                    """
                     std = self.std_face_id.detach().cpu().numpy().reshape(68, 3)
                     std_t_shape = std[self.t_shape_idx, :]
                     fake_fls_np = fake_fls_np.reshape((fake_fls_np.shape[0], 68, 3))

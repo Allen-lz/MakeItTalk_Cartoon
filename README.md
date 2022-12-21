@@ -86,10 +86,6 @@ Make sure the head is almost in the middle (check existing examples for a refere
 
 - animate!
 
-```
-python main_end2end.py --jpg <portrait_file>  
-```
-
 - use addition args `--amp_lip_x <x> --amp_lip_y <y> --amp_pos <pos>` 
 to amply lip motion (in x/y-axis direction) and head motion displacements, default values are `<x>=2., <y>=2., <pos>=.5`
 
@@ -154,4 +150,21 @@ This research is partially funded by NSF (EAGER-1942069)
 and a gift from Adobe. Our experiments were performed in the
 UMass GPU cluster obtained under the Collaborative Fund managed
 by the MassTech Collaborative.
+
+
+#### Run
+```
+python main_end2end.py --jpg <portrait_file>
+e.g:   
+python main_end2end.py --jpg anne.jpg
+```
+#### Reference: MakeItTalk用一段语音让一张照片动起来
+```
+https://flyfish.blog.csdn.net/article/details/121698184
+```
+train content
+```
+python main_train_content.py --train --write --root_dir train_data --name tmp
+```
+
 

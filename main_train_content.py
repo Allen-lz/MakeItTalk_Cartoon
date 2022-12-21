@@ -81,7 +81,7 @@ try_mkdir(opt_parser.ckpt_dir)
 opt_parser.log_dir = os.path.join(opt_parser.root_dir, 'log')
 
 # make directory for nn outputs
-try_mkdir(opt_parser.dump_dir.replace('dump','nn_result'))
+try_mkdir(opt_parser.dump_dir.replace('dump', 'nn_result'))
 try_mkdir(os.path.join(opt_parser.dump_dir.replace('dump', 'nn_result'), opt_parser.name))
 
 

@@ -12,7 +12,10 @@ from scipy.signal import get_window
 import glob
 
 def pySTFT(x, fft_length=1024, hop_length=256):
-    x = np.pad(x, int(fft_length // 2), mode='reflect')
+
+    x = np.pad(x, int(fft_length // 2), mode='reflect')  # (78030)
+
+
 
     noverlap = fft_length - hop_length
     shape = x.shape[:-1] + ((x.shape[-1] - noverlap) // hop_length, fft_length)
@@ -94,6 +97,7 @@ def extract_f0_func(gender):
 
 def extract_f0_func_audiofile(audio_file, gender='M'):
     floor_sp, ceil_sp = -80, 30
+    # (513, 80), 应该有513个向量, 每个向量的长度是80
     mel_basis = mel(16000, 1024, fmin=90, fmax=7600, n_mels=80).T
     min_level = np.exp(-100 / 20 * np.log(10))
     b, a = butter_highpass(30, 16000, order=5)
@@ -105,15 +109,21 @@ def extract_f0_func_audiofile(audio_file, gender='M'):
     else:
         raise ValueError
     prng = RandomState(0)
+    # 从audio_file中读取音频信息(x)和采样率(fs)
     x, fs = sf.read(audio_file)
     if(len(x.shape) >= 2):
         x = x[:, 0]
     if x.shape[0] % 256 == 0:
         x = np.concatenate((x, np.array([1e-06])), axis=0)
-    y = signal.filtfilt(b, a, x)
+    # https://www.cxyzjd.com/article/weixin_43956732/108500088
+    y = signal.filtfilt(b, a, x)  # 使用信号滤波, 可以消除一些干扰信号
     wav = y * 0.95 + (prng.rand(y.shape[0]) - 0.5) * 1e-06
+
+    # (78030,) --> (305, 513)
     D = pySTFT(wav).T
-    D_mel = np.dot(D, mel_basis)
+    # (305, 513), (513, 80)
+    # print(D.shape, mel_basis.shape)
+    D_mel = np.dot(D, mel_basis)  # (305, 80)
     D_db = 20 * np.log10(np.maximum(min_level, D_mel)) - 16
     S = (D_db + 100) / 100
 
@@ -121,7 +131,8 @@ def extract_f0_func_audiofile(audio_file, gender='M'):
     index_nonzero = (f0_rapt != -1e10)
     tmp = f0_rapt[index_nonzero]
     mean_f0, std_f0 = np.mean(tmp), np.std(tmp)
-
+    # 对音色(个体)进行一个归一化
+    # f0_norm是针对每个音频的标准化因子
     f0_norm = speaker_normalization(f0_rapt, index_nonzero, mean_f0, std_f0)
 
     return S, f0_norm

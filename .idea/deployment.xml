@@ -1,18 +1,32 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="yangzhou@stargazer.cs.umass.edu:22" autoUploadExternalChanges="true" showNewOnSourceInSync="false">
+  <component name="PublishConfigData" autoUpload="Always" autoUploadExternalChanges="true" showNewOnSourceInSync="false">
     <serverData>
-      <paths name="Copy of project-level server 'makeittalk@stargazer'">
+      <paths name="A100">
         <serverdata>
           <mappings>
-            <mapping deploy="/" local="$PROJECT_DIR$" web="/" />
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
-      <paths name="yangzhou@stargazer.cs.umass.edu:22">
+      <paths name="Copy of project-level server 'godman'">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/yangzhou/Documents/Git/MakeItTalk_offical_repo_remote" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="__su@10.112.205.66:56000">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="godman">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/data6/luzeng/projects/MakeItTalk" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

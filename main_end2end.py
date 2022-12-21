@@ -10,7 +10,8 @@
 
 import sys
 sys.path.append('thirdparty/AdaptiveWingLoss')
-import os, glob
+import os
+import glob
 import numpy as np
 import cv2
 import argparse
@@ -22,8 +23,39 @@ from src.autovc.AutoVC_mel_Convertor_retrain_version import AutoVC_mel_Convertor
 import shutil
 import util.utils as util
 from scipy.signal import savgol_filter
-
+import matplotlib.pyplot as plt
 from src.approaches.train_audio2landmark import Audio2landmark_model
+
+
+def vis_3d_points(points):
+    x, y, z = points[:, 0], points[:, 1], points[:, 2]
+
+    # Creating figure
+    fig = plt.figure(figsize=(10, 7))
+    ax = plt.axes(projection="3d")
+
+    # Creating plot
+    ax.scatter3D(x, y, z, color="red")
+
+    # ax.scatter3D(x[[0, 16]], y[[0, 16]], z[[0, 16]], color="green")
+    # plt.title("simple 3D scatter plot")
+
+    # show plot
+    plt.show()
+
+
+def vis_2d_points(points):
+
+    x, y = points[:, 0], points[:, 1]
+
+    # 创建绘图图表对象，可以不显式创建，跟cv2中的cv2.namedWindow()用法差不多
+    plt.figure('Draw')
+
+    plt.scatter(x, y)  # scatter绘制散点图
+
+    # plt.draw()  # 显示绘图
+
+    plt.show()
 
 default_head_name = 'dali'
 ADD_NAIVE_EYE = True
@@ -31,7 +63,7 @@ CLOSE_INPUT_FACE_MOUTH = False
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--jpg', type=str, default='{}.jpg'.format(default_head_name))
+parser.add_argument('--jpg', type=str, default='anne.jpg'.format(default_head_name))
 parser.add_argument('--close_input_face_mouth', default=CLOSE_INPUT_FACE_MOUTH, action='store_true')
 
 parser.add_argument('--load_AUTOVC_name', type=str, default='examples/ckpt/ckpt_autovc.pth')
@@ -67,65 +99,92 @@ parser.add_argument('--use_11spk_only', default=False, action='store_true')
 opt_parser = parser.parse_args()
 
 ''' STEP 1: preprocess input single image '''
-img =cv2.imread('examples/' + opt_parser.jpg)
+img = cv2.imread('examples/' + opt_parser.jpg)
 predictor = face_alignment.FaceAlignment(face_alignment.LandmarksType._3D, device='cuda', flip_input=True)
+# shapes = [(68, 3)]
 shapes = predictor.get_landmarks(img)
 if (not shapes or len(shapes) != 1):
     print('Cannot detect face landmarks. Exit.')
     exit(-1)
+# (68, 3)
 shape_3d = shapes[0]
 
+# vis_3d_points(shape_3d)
+
+
 if(opt_parser.close_input_face_mouth):
+    # 将input中人脸的嘴闭合上(用的是规则)
     util.close_input_face_mouth(shape_3d)
 
 
 ''' Additional manual adjustment to input face landmarks (slimmer lips and wider eyes) '''
+# 缩小嘴部, 撑大眼睛
 # shape_3d[48:, 0] = (shape_3d[48:, 0] - np.mean(shape_3d[48:, 0])) * 0.95 + np.mean(shape_3d[48:, 0])
 shape_3d[49:54, 1] += 1.
 shape_3d[55:60, 1] -= 1.
-shape_3d[[37,38,43,44], 1] -=2
-shape_3d[[40,41,46,47], 1] +=2
+shape_3d[[37, 38, 43, 44], 1] -= 2
+shape_3d[[40, 41, 46, 47], 1] += 2
 
+
+# vis_3d_points(shape_3d[[0, 16], :])
 
 ''' STEP 2: normalize face as input to audio branch '''
 shape_3d, scale, shift = util.norm_input_face(shape_3d)
+
+
+# vis_3d_points(shape_3d)
 
 
 ''' STEP 3: Generate audio data as input to audio branch '''
 # audio real data
 au_data = []
 au_emb = []
+# 收集所有不是tmp.wav的音频文件
 ains = glob.glob1('examples', '*.wav')
 ains = [item for item in ains if item is not 'tmp.wav']
 ains.sort()
 for ain in ains:
+    # 以16000的采样率从wav文件中进行采样, 并将得到的文件保存在tmp.wav
     os.system('ffmpeg -y -loglevel error -i examples/{} -ar 16000 examples/tmp.wav'.format(ain))
     shutil.copyfile('examples/tmp.wav', 'examples/{}'.format(ain))
 
     # au embedding
+    # me: 就是声音的平均embedding
     from thirdparty.resemblyer_util.speaker_emb import get_spk_emb
+    # 得到说话的人的平均向量(表示当前对象的id的vector), 但是这里需要一段长语音
     me, ae = get_spk_emb('examples/{}'.format(ain))
     au_emb.append(me.reshape(-1))
 
+    # ========================================================================
     print('Processing audio file', ain)
     c = AutoVC_mel_Convertor('examples')
 
-    au_data_i = c.convert_single_wav_to_autovc_input(audio_filename=os.path.join('examples', ain),
+    # 将音频文件转成固定的人的声音
+
+    au_data_i = c.convert_single_wav_to_autovc_input(
+           audio_filename=os.path.join('examples', ain),
            autovc_model_path=opt_parser.load_AUTOVC_name)
     au_data += au_data_i
-if(os.path.isfile('examples/tmp.wav')):
+    # ========================================================================
+if os.path.isfile('examples/tmp.wav'):
     os.remove('examples/tmp.wav')
 
+# ===================================================================================
 # landmark fake placeholder
 fl_data = []
 rot_tran, rot_quat, anchor_t_shape = [], [], []
 for au, info in au_data:
+
+    # au: 已经转成奥巴马音色的音频信息
+    # info[-1]: speaker emb
     au_length = au.shape[0]
-    fl = np.zeros(shape=(au_length, 68 * 3))
+    fl = np.zeros(shape=(au_length, 68 * 3))  # 每段音频都对应着一个要被预测的关键点
     fl_data.append((fl, info))
-    rot_tran.append(np.zeros(shape=(au_length, 3, 4)))
-    rot_quat.append(np.zeros(shape=(au_length, 4)))
-    anchor_t_shape.append(np.zeros(shape=(au_length, 68 * 3)))
+
+    # 我就纳闷了, 下面的这些都是0的话我要到来干什么
+    rot_tran.append(np.zeros(shape=(au_length, 3, 4)))  # 旋转矩阵
+    rot_quat.append(np.zeros(shape=(au_length, 4)))  # 旋转四元数
+    anchor_t_shape.append(np.zeros(shape=(au_length, 68 * 3)))  # 每个关键点的anchor
 
 if(os.path.exists(os.path.join('examples', 'dump', 'random_val_fl.pickle'))):
     os.remove(os.path.join('examples', 'dump', 'random_val_fl.pickle'))
@@ -135,14 +194,16 @@ if(os.path.exists(os.path.join('examples', 'dump', 'random_val_au.pickle'))):
     os.remove(os.path.join('examples', 'dump', 'random_val_au.pickle'))
 if (os.path.exists(os.path.join('examples', 'dump', 'random_val_gaze.pickle'))):
     os.remove(os.path.join('examples', 'dump', 'random_val_gaze.pickle'))
-
+# 下面这些被写到.pickle的文件是会被接下来的东西读取的
+# 但是fl_data和au_data中的数据会有重合啊
 with open(os.path.join('examples', 'dump', 'random_val_fl.pickle'), 'wb') as fp:
     pickle.dump(fl_data, fp)
 with open(os.path.join('examples', 'dump', 'random_val_au.pickle'), 'wb') as fp:
     pickle.dump(au_data, fp)
 with open(os.path.join('examples', 'dump', 'random_val_gaze.pickle'), 'wb') as fp:
-    gaze = {'rot_trans':rot_tran, 'rot_quat':rot_quat, 'anchor_t_shape':anchor_t_shape}
+    gaze = {'rot_trans': rot_tran, 'rot_quat': rot_quat, 'anchor_t_shape': anchor_t_shape}
     pickle.dump(gaze, fp)
+# ===================================================================================
 
 
 ''' STEP 4: RUN audio->landmark network'''
@@ -153,27 +214,35 @@ else:
     model.test(au_emb=None)
 
 
+# =====================================================================================
+# 下面的只是后处理的部分
 ''' STEP 5: de-normalize the output to the original image scale '''
 fls = glob.glob1('examples', 'pred_fls_*.txt')
 fls.sort()
 
-for i in range(0,len(fls)):
-    fl = np.loadtxt(os.path.join('examples', fls[i])).reshape((-1, 68,3))
+for i in range(0, len(fls)):
+    fl = np.loadtxt(os.path.join('examples', fls[i])).reshape((-1, 68, 3))
     fl[:, :, 0:2] = -fl[:, :, 0:2]
+
+    # 这个是和标准化反着来的, 去标准化
     fl[:, :, 0:2] = fl[:, :, 0:2] / scale - shift
 
     if (ADD_NAIVE_EYE):
+        # 反正是对眼睛的关键点进行一定的操作
         fl = util.add_naive_eye(fl)
 
     # additional smooth
     fl = fl.reshape((-1, 204))
+    # savgol_filter是一个滤波器, 作用是平滑
     fl[:, :48 * 3] = savgol_filter(fl[:, :48 * 3], 15, 3, axis=0)
-    fl[:, 48*3:] = savgol_filter(fl[:, 48*3:], 5, 3, axis=0)
+    fl[:, 48 * 3:] = savgol_filter(fl[:, 48 * 3:], 5, 3, axis=0)
     fl = fl.reshape((-1, 68, 3))
 
     ''' STEP 6: Imag2image translation '''
     model = Image_translation_block(opt_parser, single_test=True)
     with torch.no_grad():
+
+        # filename只是在保存文件的时候有用
         model.single_test(jpg=img, fls=fl, filename=fls[i], prefix=opt_parser.jpg.split('.')[0])
         print('finish image2image gen')
     os.remove(os.path.join('examples', fls[i]))
