@@ -23,13 +23,13 @@ from src.models.model_audio2landmark import *
 from util.utils import get_n_params
 import numpy as np
 import pickle
+import matplotlib.pyplot as plt
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class Audio2landmark_model():
-
-    def __init__(self, opt_parser, jpg_shape=None):
+    def __init__(self, opt_parser, jpg_shape=None, build_data=True, load_embs=True, data_dir=""):
         '''
         Init model with opt_parser
         '''
@@ -37,22 +37,24 @@ class Audio2landmark_model():
 
         # Step 1 : load opt_parser
         self.opt_parser = opt_parser
+        self.data_dir = data_dir
         self.std_face_id = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt')
-        if(jpg_shape is not None):
-            # 如果有当前对象的标准3d_shape就用当前测试对象的3d_shape
+        # 如果有当前对象的标准3d_shape就用当前测试对象的3d_shape
+        if jpg_shape is not None:
             self.std_face_id = jpg_shape
         self.std_face_id = self.std_face_id.reshape(1, 204)  # (68, 3)
-        self.std_face_id = torch.tensor(self.std_face_id, requires_grad=False, dtype=torch.float).to(device)
 
-        self.eval_data = Audio2landmark_Dataset(dump_dir='examples/dump',
-                                                dump_name='random',
-                                                status='val',
-                                                num_window_frames=18,
-                                                num_window_step=1)
-        self.eval_dataloader = torch.utils.data.DataLoader(self.eval_data, batch_size=1,
-                                                           shuffle=False, num_workers=0,
-                                                           collate_fn=self.eval_data.my_collate_in_segments)
-        print('EVAL num videos: {}'.format(len(self.eval_data)))
+        self.std_face_id = torch.tensor(self.std_face_id, requires_grad=False, dtype=torch.float).to(device)
+        if build_data:
+            self.eval_data = Audio2landmark_Dataset(dump_dir='examples/dump',
+                                                    dump_name='random',
+                                                    status='val',
+                                                    num_window_frames=18,
+                                                    num_window_step=1)
+            self.eval_dataloader = torch.utils.data.DataLoader(self.eval_data, batch_size=1,
+                                                               shuffle=False, num_workers=0,
+                                                               collate_fn=self.eval_data.my_collate_in_segments)
+            print('EVAL num videos: {}'.format(len(self.eval_data)))
 
         # Step 3: Load model
         self.G = Audio2landmark_pos(drop_out=0.5,
@@ -90,16 +92,19 @@ class Audio2landmark_model():
         self.anchor_t_shape = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt')  # (68, 3)
         self.anchor_t_shape = self.anchor_t_shape[self.t_shape_idx, :]  # (9, 3)
 
-        # 其实我还是不太清楚这个是什么, 但是可以确定是一个预设的东西
-        with open(os.path.join('examples', 'dump', 'emb.pickle'), 'rb') as fp:
-            self.test_embs = pickle.load(fp)
+        if load_embs:
+            with open(os.path.join('examples', 'emb.pickle'), 'rb') as fp:
+                self.test_embs = pickle.load(fp)
+        else:
+            self.test_embs = None
 
-        print('====================================')
-        for key in self.test_embs.keys():
-            print(key)
-        print('====================================')
 
     def __train_face_and_pos__(self, fls, aus, embs, face_id, smooth_win=31, close_mouth_ratio=.99):
+        """
+        fls: 存放lm结果的
+        aus: 转换成固定id的语音信息
+        embs: id emb
+        """
 
         # torch.Size([287, 204]), 就是所有窗口中第一帧的landmark
         fls_without_traj = fls[:, 0, :].detach().clone().requires_grad_(False)  # 一开始里面应该全是0
@@ -182,14 +187,15 @@ class Audio2landmark_model():
         baseline_pred_fls[:, 48 * 3 + 1::3] *= self.opt_parser.amp_lip_y  # mouth y
         return baseline_pred_fls
 
-    def __train_pass__(self, au_emb=None, centerize_face=False, no_y_rotation=False, vis_fls=False):
+    def __train_pass__(self, au_emb=None, centerize_face=False, no_y_rotation=False, vis_fls=False, is_return_fls_dict=False):
 
         # Step 1: init setup
         self.G.eval()  # speaker
         self.C.eval()  # content
         data = self.eval_data
         dataloader = self.eval_dataloader
-
+        if is_return_fls_dict:
+            fake_fls_np_dict = {}
         # Step 2: train for each batch
         for i, batch in enumerate(dataloader):
 
@@ -203,11 +209,11 @@ class Audio2landmark_model():
             inputs_fl, inputs_au, inputs_emb = batch
 
             keys = self.opt_parser.reuse_train_emb_list
-            if(len(keys) == 0):
+            if len(keys) == 0:
                 keys = ['audio_embed']
             for key in keys:  # ['45hn7-LXDX8']: #['sxCbrYjBsGA']:#
                 # load saved emb
-                if(au_emb is None):
+                if au_emb is None:
                     emb_val = self.test_embs[key]
                 else:
                     emb_val = au_emb[i]
@@ -226,18 +232,23 @@ class Audio2landmark_model():
                     inputs_au_segments = inputs_au[j: j + seg_bs]
                     inputs_emb_segments = inputs_emb[j: j + seg_bs]
 
-                    if(inputs_fl_segments.shape[0] < 10):  # 时间片段的长度少于10就不进行处理, 直接跳过
+                    if inputs_fl_segments.shape[0] < 10:  # 时间片段的长度少于10就不进行处理, 直接跳过
                         continue
 
                     input_face_id = self.std_face_id  # 这个就是标准的face landmark
 
-                    fl_dis_pred_pos, input_face_id = \
-                        self.__train_face_and_pos__(inputs_fl_segments, inputs_au_segments, inputs_emb_segments,
-                                                           input_face_id)
+                    fl_dis_pred_pos, input_face_id = self.__train_face_and_pos__(inputs_fl_segments,
+                                                                                 inputs_au_segments,
+                                                                                 inputs_emb_segments,
+                                                                                 input_face_id)
 
                     # 将预测出来的lm_offset + anchor
                     fl_dis_pred_pos = (fl_dis_pred_pos + input_face_id).data.cpu().numpy()
+                    # vis_input_face_id = np.array(input_face_id.cpu().detach()).reshape((1, 68, 3))
+                    # self._3d_vis(vis_input_face_id[0])
+
                     ''' solve inverse lip '''
+                    # 这算是个后处理, 防止上下嘴唇交叉
                     fl_dis_pred_pos = self.__solve_inverse_lip2__(fl_dis_pred_pos)
                     fls_pred_pos_list += [fl_dis_pred_pos]
 
@@ -259,7 +270,7 @@ class Audio2landmark_model():
                     fake_fls_np = fake_fls_np - np.mean(fake_fls_np, axis=1, keepdims=True) + std_m
                     fake_fls_np = fake_fls_np.reshape((-1, 68 * 3))
 
-                if(no_y_rotation):
+                if no_y_rotation:
                     """
                     这个分支没有被启用
                     """
@@ -282,16 +293,20 @@ class Audio2landmark_model():
                         fake_fls_np[i] = np.dot(T2, landmarks.T).T
                         # print(frame_t_shape[i, 0])
                     fake_fls_np = fake_fls_np.reshape((-1, 68 * 3))
-
+                # 将得到的结果保存在这里面
                 filename = 'pred_fls_{}_{}.txt'.format(video_name.split('\\')[-1].split('/')[-1], key)
+                if is_return_fls_dict:
+                    fake_fls_np_dict["pred_fls_{}_{}".format(video_name.split('\\')[-1].split('/')[-1], key)] = fake_fls_np
+
                 np.savetxt(os.path.join(self.opt_parser.output_folder, filename), fake_fls_np, fmt='%.6f')
 
                 # ''' Visualize result in landmarks '''
-                if(vis_fls):
+                if vis_fls:
                     from util.vis import Vis
                     Vis(fls=fake_fls_np, filename=video_name.split('\\')[-1].split('/')[-1], fps=62.5,
-                        audio_filenam=os.path.join('examples', video_name.split('\\')[-1].split('/')[-1]+'.wav'))
-
+                        audio_filenam=os.path.join('{}'.format(self.data_dir), video_name.split('\\')[-1].split('/')[-1] +'.wav'))
+        if is_return_fls_dict:
+            return fake_fls_np_dict
 
     def __close_face_lip__(self, fl):
         facelandmark = fl.reshape(-1, 68, 3)
@@ -304,9 +319,20 @@ class Audio2landmark_model():
                 idx = i
         return idx
 
-    def test(self, au_emb=None):
+    def _3d_vis(self, points):
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        ax.set_xlabel('X axis')
+        ax.set_ylabel('Y axis')
+        ax.set_zlabel('Z axis')
+        ax.scatter(points[:, 0],
+                   points[:, 1],
+                   points[:, 2], zdir='z', c='c')
+        plt.show()
+
+    def test(self, au_emb=None, vis_fls=True, is_return_fls_dict=False):
         with torch.no_grad():
-            self.__train_pass__(au_emb, vis_fls=True)
+            self.__train_pass__(au_emb, vis_fls=vis_fls, is_return_fls_dict=is_return_fls_dict)
 
     def __solve_inverse_lip2__(self, fl_dis_pred_pos_numpy):
         for j in range(fl_dis_pred_pos_numpy.shape[0]):

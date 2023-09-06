@@ -385,6 +385,7 @@ class Audio2landmark_speaker_aware(nn.Module):
 
         # spk
         spk_encode = self.spk_emb_encoder(emb)
+        # 增加噪声
         if(add_z_spk):
             z_spk = torch.tensor(torch.randn(spk_encode.shape)*0.01, requires_grad=False, dtype=torch.float).to(device)
             spk_encode = spk_encode + z_spk

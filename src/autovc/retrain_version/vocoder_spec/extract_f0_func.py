@@ -109,9 +109,11 @@ def extract_f0_func_audiofile(audio_file, gender='M'):
     else:
         raise ValueError
     prng = RandomState(0)
-    # 从audio_file中读取音频信息(x)和采样率(fs)
+    # 从audio_file中读取音频信息(x)和采样率(fs=16000)
     x, fs = sf.read(audio_file)
-    if(len(x.shape) >= 2):
+    # print("3 音频的长度是: ", len(x))
+
+    if len(x.shape) >= 2:
         x = x[:, 0]
     if x.shape[0] % 256 == 0:
         x = np.concatenate((x, np.array([1e-06])), axis=0)

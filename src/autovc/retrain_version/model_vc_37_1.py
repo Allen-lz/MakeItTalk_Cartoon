@@ -173,7 +173,8 @@ class Generator(nn.Module):
         self.freq = freq
 
 
-    def forward(self, x, c_org, f0_org=None, c_trg=None, f0_trg=None, enc_on=False):
+    # def forward(self, x, c_org, f0_org=None, c_trg=None, f0_trg=None, enc_on=False):
+    def forward(self, x, c_org, c_trg=None, f0_trg=None, enc_on=False):
         
         x = x.transpose(2,1)
         c_org = c_org.unsqueeze(-1).expand(-1, -1, x.size(-1))

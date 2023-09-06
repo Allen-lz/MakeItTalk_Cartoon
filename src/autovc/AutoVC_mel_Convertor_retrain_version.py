@@ -11,6 +11,18 @@ from scipy.signal import stft
 from src.autovc.retrain_version.vocoder_spec.extract_f0_func import extract_f0_func_audiofile
 from thirdparty.resemblyer_util.speaker_emb import get_spk_emb
 from src.autovc.utils import quantize_f0_interp
+import matplotlib.pyplot as plt
+
+def _3d_vis(points):
+    fig = plt.figure()
+    ax = fig.gca(projection='3d')
+    ax.set_xlabel('X axis')
+    ax.set_ylabel('Y axis')
+    ax.set_zlabel('Z axis')
+    ax.scatter(points[:, 0],
+               points[:, 1],
+               points[:, 2], zdir='z', c='c')
+    plt.show()
 
 def match_target_amplitude(sound, target_dBFS):
     # 计算出offset, 然后将计算出来的offset应用到sound上
@@ -19,7 +31,10 @@ def match_target_amplitude(sound, target_dBFS):
 
 class AutoVC_mel_Convertor():
 
-    def __init__(self, src_dir, proportion=(0., 1.), seed=0):
+    def __init__(self, src_dir, proportion=(0., 1.), seed=0, autovc_model_path="", device="cuda"):
+
+        self.device = torch.device(device if torch.cuda.is_available() else "cpu")
+
         self.src_dir = src_dir
         if not os.path.exists(os.path.join(src_dir, 'filename_index.txt')):
             self.filenames = []
@@ -31,10 +46,21 @@ class AutoVC_mel_Convertor():
         np.random.seed(seed)
         rand_perm = np.random.permutation(len(self.filenames))
         proportion_idx = (int(proportion[0] * len(rand_perm)), int(proportion[1] * len(rand_perm)))
+
+        # ******* 以上的逻辑就是选择使用哪个音频文件 *******
         selected_index = rand_perm[proportion_idx[0]: proportion_idx[1]]
         self.selected_filenames = [self.filenames[i] for i in selected_index]
 
         print('{} out of {} are in this portion'.format(len(self.selected_filenames), len(self.filenames)))
+
+        emb_trg = np.loadtxt('src/autovc/retrain_version/obama_emb.txt')
+        self.emb_trg = torch.from_numpy(emb_trg[np.newaxis, :].astype('float32'))
+
+        # 创建一个生成器, 在这里新建就很扯淡
+        self.G = Generator(16, 256, 512, 16).eval().to(self.device)
+        # 加载音频的自动编码模型
+        g_checkpoint = torch.load(autovc_model_path, map_location=self.device)
+        self.G.load_state_dict(g_checkpoint['model'])
 
     def __convert_single_only_au_AutoVC_format_to_dataset__(self, filename, build_train_dataset=True):
         """
@@ -198,49 +224,51 @@ class AutoVC_mel_Convertor():
 
         return aus
 
+    def pad_seq(self, x, base=32):
+        len_out = int(base * ceil(float(x.shape[0]) / base))
+        len_pad = len_out - x.shape[0]
+        assert len_pad >= 0
+        return np.pad(x, ((0, len_pad), (0, 0)), 'constant'), len_pad
 
-    def convert_single_wav_to_autovc_input(self, audio_filename, autovc_model_path):
-        def pad_seq(x, base=32):
-            len_out = int(base * ceil(float(x.shape[0]) / base))
-            len_pad = len_out - x.shape[0]
-            assert len_pad >= 0
-            return np.pad(x, ((0, len_pad), (0, 0)), 'constant'), len_pad
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    def convert_single_wav_to_autovc_input(self, audio_filename, cur_emb=None):
 
-        # 创建一个生成器
-        G = Generator(16, 256, 512, 16).eval().to(device)
-        # 加载音频的自动编码模型
-        g_checkpoint = torch.load(autovc_model_path, map_location=device)
-        G.load_state_dict(g_checkpoint['model'])
         """
         这里是将奥巴马的声音作为模板, 将所有人的声音都转成obama的声音, 这样就简化了后面的任务
         """
-        emb = np.loadtxt('src/autovc/retrain_version/obama_emb.txt')
-        emb_trg = torch.from_numpy(emb[np.newaxis, :].astype('float32')).to(device)
+        emb_trg = self.emb_trg.to(self.device)  # 将wav中的emb转化成emb_trg
 
         aus = []
         audio_file = audio_filename
 
-        # 1. 音频处理
+        # 1. 音频处理(但是这个音频处理不是在很多地方都读取过吗, 我看整个流程重复读取了很多次)
         sound = AudioSegment.from_file(audio_file, "wav")
+        # print("2 音频的长度是: ", len(sound))
         # 2. 标准化(匹配target中的幅度)
-        normalized_sound = match_target_amplitude(sound, target_dBFS=-20.0)
+        normalized_sound = match_target_amplitude(sound, target_dBFS=-20.0)   # *****就是输入的关键就是这个数据
         # 3. 导出数据 到 文件 audio_file中
+
+        # print("2.9 音频的长度是: ", len(normalized_sound))
+
         normalized_sound.export(audio_file, format='wav')
 
         # 得到音频content
-        # 这个步骤就会进行切段的
+        # 这个步骤就会进行切段的(好像是将wav转mel)
         x_real_src, f0_norm = extract_f0_func_audiofile(audio_file, 'F')
 
-        # x_real_src.shape = (305, 80)
+        # print("f0是什么: ", f0_norm.shape)
+        # assert False
 
-        #  f0_norm.shape = 305
+        # x_real_src.shape = (305, 80)
+        #  f0_norm.shape = (305, )
         f0_org_src = quantize_f0_interp(f0_norm)
         # f0_org_src.shape = (305, 257)
 
-        # 得到speaker
-        emb, _ = get_spk_emb(audio_file)
+        # 得到speaker_emb
+        if cur_emb is None:
+            emb, _ = get_spk_emb(audio_file)  # 这个我很熟悉, 这不是在外面已经有调用吗
+        else:
+            emb = cur_emb
 
         ''' normal length version '''
         # x_real, len_pad = pad_seq(x_real_src.astype('float32'))
@@ -259,27 +287,32 @@ class AutoVC_mel_Convertor():
         x_identic_psnt = []
         step = 4096
         for i in range(0, l, step):
-            # torch.Size([320, 80])
+            # torch.Size([305, 80])
             x_real = x_real_src[i:i + step]
-            # torch.Size([320, 257])
+
+            # torch.Size([305, 257])
             f0_org = f0_org_src[i:i + step]
 
-            x_real, len_pad = pad_seq(x_real.astype('float32'))
-            f0_org, _ = pad_seq(f0_org.astype('float32'))
+            x_real, len_pad = self.pad_seq(x_real.astype('float32'))
+            f0_org, _ = self.pad_seq(f0_org.astype('float32'))
 
-            x_real = torch.from_numpy(x_real[np.newaxis, :].astype('float32')).to(device)
-            emb_org = torch.from_numpy(emb[np.newaxis, :].astype('float32')).to(device)
+            x_real = torch.from_numpy(x_real[np.newaxis, :].astype('float32')).to(self.device)
+            emb_org = torch.from_numpy(emb[np.newaxis, :].astype('float32')).to(self.device)
             # emb_trg = torch.from_numpy(emb[np.newaxis, :].astype('float32')).to(device)
-            f0_org = torch.from_numpy(f0_org[np.newaxis, :].astype('float32')).to(device)
-            print('source shape:', x_real.shape, emb_org.shape, emb_trg.shape, f0_org.shape)
+            f0_org = torch.from_numpy(f0_org[np.newaxis, :].astype('float32')).to(self.device)
+            # print('source shape:', x_real.shape, emb_org.shape, emb_trg.shape, f0_org.shape)
 
             with torch.no_grad():
-                x_identic, x_identic_psnt_i, code_real = G(x_real, emb_org, f0_org, emb_trg, f0_org)
+                # 对语音进行id的转化
+                x_identic, x_identic_psnt_i, code_real = self.G(x_real,
+                                                                emb_org,
+                                                                # f0_org,
+                                                                emb_trg,
+                                                                f0_org)
                 x_identic_psnt.append(x_identic_psnt_i)
 
         x_identic_psnt = torch.cat(x_identic_psnt, dim=1)
-        print('converted shape:', x_identic_psnt.shape, code_real.shape)
-
+        # print('converted shape:', x_identic_psnt.shape, code_real.shape)
         if len_pad == 0:
             uttr_trg = x_identic_psnt[0, :, :].cpu().numpy()
         else:

@@ -1,3 +1,6 @@
 train_data/
 examples/
 examples_cartoon/
+*.ckpt
+*.pt
+*.pth

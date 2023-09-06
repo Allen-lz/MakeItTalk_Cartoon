@@ -298,6 +298,7 @@ def get_puppet_info(DEMO_CH, ROOT_DIR):
         bound = np.array([0, 0, 0, 140, 0, 280, 249, 280, 499, 280, 499, 140, 499, 0, 249, 0]).reshape(1, -1)
         scale, shift = -0.012986159189209149, np.array([-237.27065, -79.2465])
     else:
+        # 这个四个拉伸的锚点的计算原理是固定的
         if (os.path.exists(os.path.join(ROOT_DIR, DEMO_CH + '.jpg'))):
             img = cv2.imread(os.path.join(ROOT_DIR, DEMO_CH + ".jpg"))
         elif (os.path.exists(os.path.join(ROOT_DIR, DEMO_CH + '.png'))):
@@ -320,6 +321,7 @@ def get_puppet_info(DEMO_CH, ROOT_DIR):
                           h//4, -B,
                           h // 2, -B,
                           h//4*3, -B]).reshape(1, -1)
+        # 但是这个scale和shift是在打标注的时候预设的
         ss = np.loadtxt(os.path.join(ROOT_DIR, DEMO_CH + '_scale_shift.txt'))
         scale, shift = ss[0], np.array([ss[1], ss[2]])
 
@@ -355,12 +357,13 @@ def norm_input_face(shape_3d):
     # 这里是标准化, 只是因为scale使用的是倒数, shift使用减数, 所以会写成这样
     shape_3d[:, 0:2] = (shape_3d[:, 0:2] + shift) * scale
 
-    # 掏出标准的关键点, 替换掉以下的三个点
+    # 取出标准的关键点, 替换掉以下的三个点
     face_std = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt').reshape(68, 3)
     # 这里是将标准脸的深度给替换到了shape_3d上去
     shape_3d[:, -1] = face_std[:, -1] * 0.1
     shape_3d[:, 0:2] = -shape_3d[:, 0:2]
 
+    # 将用于标准化的系数返回, 便于之后还原
     return shape_3d, scale, shift
 
 def add_naive_eye(fl):

@@ -11,7 +11,6 @@
 import numpy as np
 
 def area_of_triangle(pts):
-
     AB = pts[1, :] - pts[0, :]
     AC = pts[2, :] - pts[0, :]
 

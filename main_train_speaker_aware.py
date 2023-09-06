@@ -15,7 +15,7 @@ import argparse
 import platform
 import torch
 from util.utils import try_mkdir
-from approaches.train_speaker_aware import Speaker_aware_branch
+from src.approaches.train_speaker_aware import Speaker_aware_branch
 
 
 if platform.release() == '4.4.0-83-generic':

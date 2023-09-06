@@ -51,6 +51,9 @@ class Audio2landmark_Dataset(data.Dataset):
         au_mean_std = np.loadtxt('src/dataset/utils/MEAN_STD_AUTOVC_RETRAIN_MEL_AU.txt')
         au_mean, au_std = au_mean_std[0:au_mean_std.shape[0]//2], au_mean_std[au_mean_std.shape[0]//2:]
         # 对待测试的音频文件进行标准化
+
+        # print("这里标准化的参数: ", au_mean.shape, au_std.shape)  # 都是80
+
         self.au_data = [((au - au_mean) / au_std, info) for au, info in self.au_data]
 
     def __len__(self):
@@ -65,7 +68,11 @@ class Audio2landmark_Dataset(data.Dataset):
         就是 __getitem__() 之后还会过一遍这个
         """
         fls, aus, embs = [], [], []
+
         for fl, au in batch:
+            """
+            这里每个batch中的数据是属于同一段音频的
+            """
             fl_data, au_data, emb_data = fl[0], au[0], au[1][2]
             assert (fl_data.shape[0] == au_data.shape[0])
 
@@ -83,12 +90,14 @@ class Audio2landmark_Dataset(data.Dataset):
                     for i in range(0, fl_data.shape[0] - self.num_window_frames, self.num_window_step)]
             aus += [au_data[i:i + self.num_window_frames]
                     for i in range(0, au_data.shape[0] - self.num_window_frames, self.num_window_step)]
+            # 对emb进行复制
             embs += [emb_data] * ((au_data.shape[0] - self.num_window_frames) // self.num_window_step)
 
         fls = torch.stack(fls, dim=0)
         aus = torch.stack(aus, dim=0)
         embs = torch.stack(embs, dim=0)
 
+        # print("输出的shape: ")
         # print(fls.shape)
         # print(aus.shape)
         # print(embs.shape)

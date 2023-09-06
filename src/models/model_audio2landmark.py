@@ -68,9 +68,10 @@ class Audio2landmark_content(nn.Module):
             nn.Linear(256, 204),
         )
 
-
-
     def forward(self, au, face_id):
+        """
+
+        """
         # aus.shape =              torch.Size([287, 18, 80])
         # residual_face_id.shape = torch.Size([287, 204])
         inputs = au
@@ -90,6 +91,7 @@ class Audio2landmark_content(nn.Module):
         # output += face_id
 
         # print(output2.shape, face_id.shape)
+        # 可以发现这里的18, 没有了
         # torch.Size([287, 204]) torch.Size([287, 204])
 
         return output2, face_id

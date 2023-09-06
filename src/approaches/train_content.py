@@ -15,6 +15,7 @@ import torch.utils.data
 import time
 from src.dataset.audio2landmark.audio2landmark_dataset import Audio2landmark_Dataset
 from src.models.model_audio2landmark import Audio2landmark_content
+from src.models.audio2head.audio2headpose import Audio2Headpose
 from util.utils import Record
 from util.icp import icp
 import numpy as np
@@ -39,7 +40,7 @@ class Audio2landmark_model():
         self.std_face_id = torch.tensor(self.std_face_id, requires_grad=False, dtype=torch.float).to(device)
 
         self.train_data = Audio2landmark_Dataset(dump_dir=opt_parser.dump_dir,
-                                                 dump_name='autovc_align',  # autovc_retrain_mel
+                                                 dump_name='autovc_retrain_mel',  # autovc_retrain_mel
                                                  status='train',
                                                  num_window_frames=opt_parser.num_window_frames,
                                                  num_window_step=opt_parser.num_window_step)
@@ -49,7 +50,7 @@ class Audio2landmark_model():
         print('TRAIN num videos: {}'.format(len(self.train_data)))
 
         self.eval_data = Audio2landmark_Dataset(dump_dir=opt_parser.dump_dir,
-                                                dump_name='autovc_align',  # autovc_retrain_mel
+                                                dump_name='autovc_retrain_mel',  # autovc_retrain_mel
                                                 status='train',  # test
                                                 num_window_frames=opt_parser.num_window_frames,
                                                 num_window_step=opt_parser.num_window_step)
@@ -68,6 +69,7 @@ class Audio2landmark_model():
             self.C.load_state_dict(ckpt['model_g_face_id'])
             print('======== LOAD PRETRAINED CONTENT BRANCH MODEL {} ========='.format(opt_parser.load_a2l_C_name))
         self.C.to(device)
+        self.A2C = Audio2Headpose().to(device)
 
         self.t_shape_idx = (27, 28, 29, 30, 33, 36, 39, 42, 45)
         self.anchor_t_shape = np.loadtxt('src/dataset/utils/STD_FACE_LANDMARKS.txt')
@@ -77,15 +79,50 @@ class Audio2landmark_model():
 
         self.loss_mse = torch.nn.MSELoss()
 
+        self.A2H_receptive_field = 128
+
     def __train_content__(self, fls, aus, face_id, is_training=True):
 
-        fls_gt = fls[:, 0, :].detach().clone().requires_grad_(False)
+        batchsize, t, vec_l = aus.shape
+
+        fls_gt = fls[:, 0, :].detach().clone().requires_grad_(False)  # 为什么第一个才是gt, 不是最后一个吗
+        # aus.shape = torch.Size([512, 18, 80])
 
         if (face_id.shape[0] == 1):
             face_id = face_id.repeat(aus.shape[0], 1)
         face_id = face_id.requires_grad_(False)
 
+        # c网络的输入就只有一个aus和标准人脸的landmark而已
         fl_dis_pred, _ = self.C(aus, face_id)
+        # fl_dis_pred.shape = torch.Size([512, 204])
+
+        # ##################################################################################
+        # 这里再加入一个基于重采样的head pose的分布的计算
+        pred_headpose = torch.zeros([batchsize * t, 204])
+
+        history_headpose = torch.zeros([1, self.A2H_receptive_field, 204]).to(fl_dis_pred.device)
+        aus_insert = aus.reshape(batchsize * t, -1)[0:1].repeat(self.A2H_receptive_field - 1, 1)
+        # 这里复制opt.A2H_receptive_field - 1份而不是opt.A2H_receptive_field的原因是因为, 在concat的时候audio_feats的第一个向量就是audio_feats[0], 所以cat在一起就是255个了
+        # 将audio_feats_insert插入到前面(254, 1024) + (687, 1024)
+        aus_insert = torch.cat([aus_insert, aus.reshape(batchsize * t, -1)], dim=0)  # (941, 1024)
+
+        infer_start = 0
+        nframe = batchsize * t
+        for i in range(infer_start, nframe):
+            history_start = i - infer_start  # 一直递增
+            # 使用下面的应该也是一样的
+            # history_start = i
+            # input_audio_feats.shape = (255, 1024)
+            input_audio_feats = aus_insert[history_start: history_start + self.A2H_receptive_field]
+            # if input_audio_feats.shape[0] < self.A2H_receptive_field:
+            #     break
+            # 先假设里面有一个预测的模块
+            # ============================ 预测好的结果会存放在pred_headpose中 ==============================
+            self.A2C.forward(history_headpose, input_audio_feats)
+
+            # pred_headpose[i] = pred_res
+
+            # history_headpose = torch.cat((history_headpose[:, 1:, :], pred_data), dim=1)
 
         ''' lip region weight '''
 
@@ -107,6 +144,7 @@ class Audio2landmark_model():
             loss = torch.nn.functional.l1_loss(fl_dis_pred+face_id[0:1].detach(), fls_gt)
 
         if (self.opt_parser.use_motion_loss):
+            # 缩小这个运动的轨迹, 使得运动更加的平滑
             pred_motion = fl_dis_pred[:-1] - fl_dis_pred[1:]
             gt_motion = fls_gt[:-1] - fls_gt[1:]
             loss += torch.nn.functional.l1_loss(pred_motion, gt_motion)

@@ -166,5 +166,7 @@ train content
 ```
 python main_train_content.py --train --write --root_dir train_data --name tmp
 ```
+2022.12.21
+1. 先简单的将content branch中与spk emb相关的网络层给去除
 
 

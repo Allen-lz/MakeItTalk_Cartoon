@@ -26,6 +26,8 @@ from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 from src.approaches.train_audio2landmark import Audio2landmark_model
 
+import matplotlib.pyplot as plt
+
 
 def vis_3d_points(points):
     x, y, z = points[:, 0], points[:, 1], points[:, 2]
@@ -56,6 +58,18 @@ def vis_2d_points(points):
     # plt.draw()  # 显示绘图
 
     plt.show()
+
+def vis_2dpts_in_image(points, image):
+    img = cv2.cvtColor(image.copy(), cv2.COLOR_BGR2RGB)
+
+    x, y = points[:, 0], points[:, 1]
+
+    for xi, yi in zip(x, y):
+        cv2.circle(img, (int(xi), int(yi)), 1, (255, 0, 0), -1)
+
+    plt.imshow(img)
+    plt.show()
+
 
 default_head_name = 'dali'
 ADD_NAIVE_EYE = True
@@ -98,6 +112,11 @@ parser.add_argument('--use_11spk_only', default=False, action='store_true')
 
 opt_parser = parser.parse_args()
 
+
+
+#####
+#####
+# 得到待驱动图片的3dlm
 ''' STEP 1: preprocess input single image '''
 img = cv2.imread('examples/' + opt_parser.jpg)
 predictor = face_alignment.FaceAlignment(face_alignment.LandmarksType._3D, device='cuda', flip_input=True)
@@ -110,13 +129,15 @@ if (not shapes or len(shapes) != 1):
 shape_3d = shapes[0]
 
 # vis_3d_points(shape_3d)
+# vis_2d_points(shape_3d[:, :2])
+# vis_2dpts_in_image(shape_3d[:, :2], img)
 
-
+#####
+#####
+# 使用固定的规则将first 3dlm的嘴部闭上
 if(opt_parser.close_input_face_mouth):
     # 将input中人脸的嘴闭合上(用的是规则)
     util.close_input_face_mouth(shape_3d)
-
-
 ''' Additional manual adjustment to input face landmarks (slimmer lips and wider eyes) '''
 # 缩小嘴部, 撑大眼睛
 # shape_3d[48:, 0] = (shape_3d[48:, 0] - np.mean(shape_3d[48:, 0])) * 0.95 + np.mean(shape_3d[48:, 0])
@@ -127,6 +148,8 @@ shape_3d[[40, 41, 46, 47], 1] += 2
 
 
 # vis_3d_points(shape_3d[[0, 16], :])
+
+# vis_2dpts_in_image(shape_3d[:, :2], img)
 
 ''' STEP 2: normalize face as input to audio branch '''
 shape_3d, scale, shift = util.norm_input_face(shape_3d)
@@ -141,8 +164,9 @@ au_data = []
 au_emb = []
 # 收集所有不是tmp.wav的音频文件
 ains = glob.glob1('examples', '*.wav')
-ains = [item for item in ains if item is not 'tmp.wav']
+ains = [item for item in ains if item is not 'tmp.wav']  # 只有一个
 ains.sort()
+
 for ain in ains:
     # 以16000的采样率从wav文件中进行采样, 并将得到的文件保存在tmp.wav
     os.system('ffmpeg -y -loglevel error -i examples/{} -ar 16000 examples/tmp.wav'.format(ain))
@@ -152,15 +176,14 @@ for ain in ains:
     # me: 就是声音的平均embedding
     from thirdparty.resemblyer_util.speaker_emb import get_spk_emb
     # 得到说话的人的平均向量(表示当前对象的id的vector), 但是这里需要一段长语音
-    me, ae = get_spk_emb('examples/{}'.format(ain))
-    au_emb.append(me.reshape(-1))
+    me, _ = get_spk_emb('examples/{}'.format(ain))
+    au_emb.append(me.reshape(-1))  # ************ 这里得到的应该是说话人的id emb ***************
 
     # ========================================================================
     print('Processing audio file', ain)
     c = AutoVC_mel_Convertor('examples')
 
     # 将音频文件转成固定的人的声音
-
     au_data_i = c.convert_single_wav_to_autovc_input(
            audio_filename=os.path.join('examples', ain),
            autovc_model_path=opt_parser.load_AUTOVC_name)
@@ -177,7 +200,8 @@ for au, info in au_data:
 
     # au: 已经转成奥巴马音色的音频信息
     # info[-1]: speaker emb
-    au_length = au.shape[0]
+    au_length = au.shape[0]  # 什么鬼这里只提供了一个长度, 305
+
     fl = np.zeros(shape=(au_length, 68 * 3))  # 每段音频都对应着一个要被预测的关键点
     fl_data.append((fl, info))
 
@@ -186,6 +210,7 @@ for au, info in au_data:
     rot_quat.append(np.zeros(shape=(au_length, 4)))  # 旋转四元数
     anchor_t_shape.append(np.zeros(shape=(au_length, 68 * 3)))  # 每个关键点的anchor
 
+# 删除上一次推理的缓存文件
 if(os.path.exists(os.path.join('examples', 'dump', 'random_val_fl.pickle'))):
     os.remove(os.path.join('examples', 'dump', 'random_val_fl.pickle'))
 if(os.path.exists(os.path.join('examples', 'dump', 'random_val_fl_interp.pickle'))):
@@ -194,6 +219,8 @@ if(os.path.exists(os.path.join('examples', 'dump', 'random_val_au.pickle'))):
     os.remove(os.path.join('examples', 'dump', 'random_val_au.pickle'))
 if (os.path.exists(os.path.join('examples', 'dump', 'random_val_gaze.pickle'))):
     os.remove(os.path.join('examples', 'dump', 'random_val_gaze.pickle'))
+
+
 # 下面这些被写到.pickle的文件是会被接下来的东西读取的
 # 但是fl_data和au_data中的数据会有重合啊
 with open(os.path.join('examples', 'dump', 'random_val_fl.pickle'), 'wb') as fp:
@@ -207,7 +234,7 @@ with open(os.path.join('examples', 'dump', 'random_val_gaze.pickle'), 'wb') as f
 
 
 ''' STEP 4: RUN audio->landmark network'''
-model = Audio2landmark_model(opt_parser, jpg_shape=shape_3d)
+model = Audio2landmark_model(opt_parser, jpg_shape=shape_3d)  # 其中包括对数据的加载
 if(len(opt_parser.reuse_train_emb_list) == 0):
     model.test(au_emb=au_emb)
 else:

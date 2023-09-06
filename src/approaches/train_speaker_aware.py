@@ -257,10 +257,11 @@ class Speaker_aware_branch():
         for name, p in self.G.named_parameters():
             p.requires_grad = True
 
+        # 得到通过id emb预测得到的人脸关键点fl_dis_pred
         fl_dis_pred, pos_pred, _, spk_encode = self.G(aus,
-                                            embs * self.opt_parser.emb_coef,
-                                            face_id,
-                                            add_z_spk=True)
+                                                      embs * self.opt_parser.emb_coef,
+                                                      face_id,
+                                                      add_z_spk=True)
 
         if (use_residual):
             baseline_pred_fls, _ = self.C(aus[:, 0:18, :], content_branch_face_id)
@@ -284,6 +285,7 @@ class Speaker_aware_branch():
 
                 fl_dis_pred = torch.tensor(fl_dis_pred).to(device) * self.opt_parser.amp_pos
 
+                # 这里得到的一个平均的关键点预测
                 mean_face_id = torch.mean(baseline_pred_fls.detach(), dim=0, keepdim=True)
                 # option 1
                 content_branch_face_id -= mean_face_id.view(1, 204) * 1.0
@@ -293,6 +295,7 @@ class Speaker_aware_branch():
                 baseline_pred_fls[:, 48 * 3::3] *= self.opt_parser.amp_lip_x  # mouth x
                 baseline_pred_fls[:, 48 * 3 + 1::3] *= self.opt_parser.amp_lip_y  # mouth y
 
+            # 这个作为最终的偏移
             fl_dis_pred += baseline_pred_fls.detach()
 
         # reconstruct face through pos
