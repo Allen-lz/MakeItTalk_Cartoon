@@ -4,3 +4,4 @@ examples_cartoon_backup/
 *.ckpt
 *.pt
 *.pth
+.idea

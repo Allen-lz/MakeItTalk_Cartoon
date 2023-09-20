@@ -1,172 +1,96 @@
-# MakeItTalk: Speaker-Aware Talking-Head Animation
-
-This is the code repository implementing the paper:
-
-> **MakeItTalk: Speaker-Aware Talking-Head Animation**
->
-> [Yang Zhou](https://people.umass.edu/~yangzhou), 
-> [Xintong Han](http://users.umiacs.umd.edu/~xintong/), 
-> [Eli Shechtman](https://research.adobe.com/person/eli-shechtman), 
-> [Jose Echevarria](http://www.jiechevarria.com) , 
-> [Evangelos Kalogerakis](https://people.cs.umass.edu/~kalo/), 
-> [Dingzeyu Li](https://dingzeyu.li)
->
-> SIGGRAPH Asia 2020
->
-> **Abstract** We present a method that generates expressive talking-head videos from a single facial image with audio as the only input. In contrast to previous attempts to learn direct mappings from audio to raw pixels for creating talking faces, our method first disentangles the content and speaker information in the input audio signal. The audio content robustly controls the motion of lips and nearby facial regions, while the speaker information determines the specifics of facial expressions and the rest of the talking-head dynamics. Another key component of our method is the prediction of facial landmarks reflecting the speaker-aware dynamics. Based on this intermediate representation, our method works with many portrait images in a single unified framework, including artistic paintings, sketches, 2D cartoon characters,  Japanese mangas, and stylized caricatures.
-In addition, our method generalizes well for faces and characters that were not observed during training. We present extensive quantitative and qualitative evaluation of our method, in addition to user studies, demonstrating generated talking-heads of significantly higher quality compared to prior state-of-the-art methods.
->
-> [[Project page]](https://people.umass.edu/~yangzhou/MakeItTalk/) 
-> [[Paper]](https://people.umass.edu/~yangzhou/MakeItTalk/MakeItTalk_SIGGRAPH_Asia_Final_round-5.pdf) 
-> [[Video]](https://www.youtube.com/watch?v=OU6Ctzhpc6s) 
-> [[Arxiv]](https://arxiv.org/abs/2004.12992)
-> [[Colab Demo]](quick_demo.ipynb)
-> [[Colab Demo TDLR]](quick_demo_tdlr.ipynb)
-
-![img](doc/teaser.png)
-
-Figure. Given an audio speech signal and a single portrait image   as input (left), our model generates speaker-aware talking-head animations (right). 
-Both the speech signal and the input face image are not observed during the model training process.
-Our method creates both non-photorealistic cartoon animations (top) and natural human face videos (bottom).
-
-## Updates
-
-- [x] facewarp source code and compile instructions
-- [x] Pre-trained models
-- [x] Google colab quick demo for natural faces [[detail]](quick_demo.ipynb) [[TDLR]](quick_demo_tdlr.ipynb)
-- [ ] Training code for each module
-- [ ] Customized puppet creating tool
-
-## Requirements
-- Python environment 3.6
+## Run
 ```
-conda create -n makeittalk_env python=3.6
-conda activate makeittalk_env
+python cartoon_preprocess.py 
+参数DEMO_CH用来控制要处理的数据
 ```
-- ffmpeg (https://ffmpeg.org/download.html)
+### The format of the data is as follows
+#### LMK
+```text
+<points label="1" source="manual" outside="0" occluded="0" points="369.78,388.10">
+<points label="2" source="manual" outside="0" occluded="0" points="379.86,427.47">
+<points label="3" source="manual" outside="0" occluded="0" points="393.17,454.33">
+<points label="4" source="manual" outside="0" occluded="0" points="407.22,488.07">
+<points label="5" source="manual" outside="0" occluded="0" points="426.32,524.85">
+<points label="6" source="manual" outside="0" occluded="0" points="448.46,558.13">
+<points label="7" source="manual" outside="0" occluded="0" points="483.18,580.96">
+<points label="8" source="manual" outside="0" occluded="0" points="534.91,598.21">
+<points label="9" source="manual" outside="0" occluded="0" points="598.51,608.25">
+<points label="10" source="manual" outside="0" occluded="0" points="653.49,599.21">
+<points label="11" source="manual" outside="0" occluded="0" points="713.97,580.47">
+<points label="12" source="manual" outside="0" occluded="0" points="741.29,556.90">
+<points label="13" source="manual" outside="0" occluded="0" points="759.73,528.51">
+<points label="14" source="manual" outside="0" occluded="0" points="774.77,490.24">
+<points label="15" source="manual" outside="0" occluded="0" points="793.24,454.69">
+<points label="16" source="manual" outside="0" occluded="0" points="804.04,427.34">
+<points label="17" source="manual" outside="0" occluded="0" points="819.38,387.48">
+<points label="18" source="manual" outside="0" occluded="0" points="443.84,345.94">
+<points label="19" source="manual" outside="0" occluded="0" points="461.42,336.99">
+<points label="20" source="manual" outside="0" occluded="0" points="485.51,336.15">
+<points label="21" source="manual" outside="0" occluded="0" points="508.04,333.19">
+<points label="22" source="manual" outside="0" occluded="0" points="526.73,336.07">
+<points label="23" source="manual" outside="0" occluded="0" points="657.41,324.97">
+<points label="24" source="manual" outside="0" occluded="0" points="685.20,326.32">
+<points label="25" source="manual" outside="0" occluded="0" points="708.92,327.12">
+<points label="26" source="manual" outside="0" occluded="0" points="728.34,335.09">
+<points label="27" source="manual" outside="0" occluded="0" points="747.59,342.71">
+<points label="28" source="manual" outside="0" occluded="0" points="595.54,372.35">
+<points label="29" source="manual" outside="0" occluded="0" points="596.73,398.97">
+<points label="30" source="manual" outside="0" occluded="0" points="596.85,424.44">
+<points label="31" source="manual" outside="0" occluded="0" points="597.93,444.94">
+<points label="32" source="manual" outside="0" occluded="0" points="583.78,454.89">
+<points label="33" source="manual" outside="0" occluded="0" points="579.90,471.47">
+<points label="34" source="manual" outside="0" occluded="0" points="597.45,485.56">
+<points label="35" source="manual" outside="0" occluded="0" points="618.22,473.62">
+<points label="36" source="manual" outside="0" occluded="0" points="614.35,455.96">
+<points label="37" source="manual" outside="0" occluded="0" points="467.12,421.95">
+<points label="38" source="manual" outside="0" occluded="0" points="492.10,385.38">
+<points label="39" source="manual" outside="0" occluded="0" points="516.99,420.42">
+<points label="40" source="manual" outside="0" occluded="0" points="511.46,452.14">
+<points label="41" source="manual" outside="0" occluded="0" points="492.09,479.07">
+<points label="42" source="manual" outside="0" occluded="0" points="471.63,458.03">
+<points label="43" source="manual" outside="0" occluded="0" points="681.66,411.89">
+<points label="44" source="manual" outside="0" occluded="0" points="710.22,394.17">
+<points label="45" source="manual" outside="0" occluded="0" points="727.68,427.29">
+<points label="46" source="manual" outside="0" occluded="0" points="724.08,463.12">
+<points label="47" source="manual" outside="0" occluded="0" points="701.87,478.07">
+<points label="48" source="manual" outside="0" occluded="0" points="681.29,448.85">
+<points label="49" source="manual" outside="0" occluded="0" points="527.97,532.49">
+<points label="50" source="manual" outside="0" occluded="0" points="546.00,522.65">
+<points label="51" source="manual" outside="0" occluded="0" points="580.27,513.42">
+<points label="52" source="manual" outside="0" occluded="0" points="599.52,512.77">
+<points label="53" source="manual" outside="0" occluded="0" points="616.96,512.34">
+<points label="54" source="manual" outside="0" occluded="0" points="646.24,523.15">
+<points label="55" source="manual" outside="0" occluded="0" points="665.69,529.76">
+<points label="56" source="manual" outside="0" occluded="0" points="645.07,549.39">
+<points label="57" source="manual" outside="0" occluded="0" points="626.24,558.21">
+<points label="58" source="manual" outside="0" occluded="0" points="596.42,566.96">
+<points label="59" source="manual" outside="0" occluded="0" points="567.58,561.28">
+<points label="60" source="manual" outside="0" occluded="0" points="548.18,551.72">
+<points label="61" source="manual" outside="0" occluded="0" points="546.02,534.98">
+<points label="62" source="manual" outside="0" occluded="0" points="575.10,529.82">
+<points label="63" source="manual" outside="0" occluded="0" points="599.72,528.08">
+<points label="64" source="manual" outside="0" occluded="0" points="621.62,529.32">
+<points label="65" source="manual" outside="0" occluded="0" points="644.48,534.98">
+<points label="66" source="manual" outside="0" occluded="0" points="623.85,549.24">
+<points label="67" source="manual" outside="0" occluded="0" points="599.72,555.53">
+<points label="68" source="manual" outside="0" occluded="0" points="569.15,549.90">
 ```
-sudo apt-get install ffmpeg
+#### img
+![](doc/womanteacher_open_mouth.png)
+
+#### 
+| 标准化之后的张嘴数据| 三角形仿射变换|
+| ------------- | ------------- |
+| ![](doc/Figure_1.png)  |  ![](doc/Figure_2.png)  |
+
+
+### inference
 ```
-- python packages
-```
-pip install -r requirements.txt
-```
-- `winehq-stable` for cartoon face warping in Ubuntu (https://wiki.winehq.org/Ubuntu). Tested on Ubuntu16.04, wine==5.0.3.
-```
-sudo dpkg --add-architecture i386
-wget -nc https://dl.winehq.org/wine-builds/winehq.key
-sudo apt-key add winehq.key
-sudo apt-add-repository 'deb https://dl.winehq.org/wine-builds/ubuntu/ xenial main'
-sudo apt update
-sudo apt install --install-recommends winehq-stable
-```
-
-## Pre-trained Models
-
-Download the following pre-trained models to `examples/ckpt` folder for testing your own animation.
-
-| Model |  Link to the model | 
-| :-------------: | :---------------: |
-| Voice Conversion  | [Link](https://drive.google.com/file/d/1ZiwPp_h62LtjU0DwpelLUoodKPR85K7x/view?usp=sharing)  |
-| Speech Content Module  | [Link](https://drive.google.com/file/d/1r3bfEvTVl6pCNw5xwUhEglwDHjWtAqQp/view?usp=sharing)  |
-| Speaker-aware Module  | [Link](https://drive.google.com/file/d/1rV0jkyDqPW-aDJcj7xSO6Zt1zSXqn1mu/view?usp=sharing)  |
-| Image2Image Translation Module  | [Link](https://drive.google.com/file/d/1i2LJXKp-yWKIEEgJ7C6cE3_2NirfY_0a/view?usp=sharing)  |
-| Non-photorealistic Warping (.exe)  | [Link](https://drive.google.com/file/d/1rlj0PAUMdX8TLuywsn6ds_G6L63nAu0P/view?usp=sharing)  |
-
-## Animate You Portraits!
-
-- Download pre-trained embedding [[here]](https://drive.google.com/file/d/18-0CYl5E6ungS3H4rRSHjfYvvm-WwjTI/view?usp=sharing) and save to `examples/dump` folder.
-
-### _Nature Human Faces / Paintings_
-
-- crop your portrait image into size `256x256` and put it under `examples` folder with `.jpg` format. 
-Make sure the head is almost in the middle (check existing examples for a reference).
-
-- put test audio files under `examples` folder as well with `.wav` format.
-
-- animate!
-
-- use addition args `--amp_lip_x <x> --amp_lip_y <y> --amp_pos <pos>` 
-to amply lip motion (in x/y-axis direction) and head motion displacements, default values are `<x>=2., <y>=2., <pos>=.5`
-
-
-
-### _Cartoon Faces_ 
-
-- put test audio files under `examples` folder as well with `.wav` format.
-
-- animate one of the existing puppets
-
-| Puppet Name |  wilk | roy | sketch | color | cartoonM | danbooru1 | 
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| Image  | ![img](examples_cartoon/wilk_fullbody.jpg)  | ![img](examples_cartoon/roy_full.png)  | ![img](examples_cartoon/sketch.png)  | ![img](examples_cartoon/color.jpg)  | ![img](examples_cartoon/cartoonM.png)  | ![img](examples_cartoon/danbooru1.jpg)  |
-
-```
-python main_end2end_cartoon.py --jpg <cartoon_puppet_name_with_extension> --jpg_bg <puppet_background_with_extension>
+python drive_cartoon.py --jpg womanteacher.jpg --jpg_bg womanteacher_bg.jpg
 ```
 
-- `--jpg_bg` takes a same-size image as the background image to create the animation, such as the puppet's body, the overall fixed background image. If you want to use the background, make sure the puppet face image (i.e. `--jpg` image) is in `png` format and is transparent on the non-face area. If you don't need any background, please also create a same-size image (e.g. a pure white image) to hold the argument place.
+#### result
+![](doc/out.gif)
 
-- use addition args `--amp_lip_x <x> --amp_lip_y <y> --amp_pos <pos>` 
-to amply lip motion (in x/y-axis direction) and head motion displacements, default values are `<x>=2., <y>=2., <pos>=.5`
-
-- create your own puppets (ToDo...)
-
-## Train
-
-### Train Voice Conversion Module
-Todo...
-
-### Train Content Branch
-- Create dataset root directory `<root_dir>`
-
-- Dataset: Download preprocessed dataset [[here]](https://drive.google.com/drive/folders/1EwuAy3j1b9Zc1MsidUfxG_pJGc_cV60O?usp=sharing), and put it under `<root_dir>/dump`.
-
-- Train script: Run script below. Models will be saved in `<root_dir>/ckpt/<train_instance_name>`.
-
-    ```shell script
-    python main_train_content.py --train --write --root_dir <root_dir> --name <train_instance_name>
-    ```
-  
-### Train Speaker-Aware Branch
-Todo...
-
-### Train Image-to-Image Translation
-
-Todo...
-
-## [License](LICENSE.md)
-
-## Acknowledgement
-
-We would like to thank Timothy Langlois for the narration, and
-[Kaizhi Qian](https://scholar.google.com/citations?user=uEpr4C4AAAAJ&hl=en) 
-for the help with the [voice conversion module](https://auspicious3000.github.io/icassp-2020-demo/). 
-We thank [Jakub Fiser](https://research.adobe.com/person/jakub-fiser/) for implementing the real-time GPU version of the triangle morphing algorithm. 
-We thank Daichi Ito for sharing the caricature image and Dave Werner
-for Wilk, the gruff but ultimately lovable puppet. 
-
-This research is partially funded by NSF (EAGER-1942069)
-and a gift from Adobe. Our experiments were performed in the
-UMass GPU cluster obtained under the Collaborative Fund managed
-by the MassTech Collaborative.
-
-
-#### Run
-```
-python main_end2end.py --jpg <portrait_file>
-e.g:   
-python main_end2end.py --jpg anne.jpg
-```
-#### Reference: MakeItTalk用一段语音让一张照片动起来
-```
-https://flyfish.blog.csdn.net/article/details/121698184
-```
-train content
-```
-python main_train_content.py --train --write --root_dir train_data --name tmp
-```
-2022.12.21
-1. 先简单的将content branch中与spk emb相关的网络层给去除
 
 
