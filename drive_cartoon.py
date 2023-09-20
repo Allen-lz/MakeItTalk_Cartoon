@@ -29,7 +29,7 @@ from src.dataset.audio2landmark.audio2landmark_dataset import Audio2landmark_Dat
 ADD_NAIVE_EYE = False
 GEN_AUDIO = True
 GEN_FLS = True
-
+# examples_cartoon/bluehead.jpg
 parser = argparse.ArgumentParser()
 parser.add_argument('--jpg', type=str, required=True, help='Puppet image name to animate (with filename extension), e.g. wilk.png')
 parser.add_argument('--jpg_bg', type=str, required=True, help='Puppet image background (with filename extension), e.g. wilk_bg.jpg')
@@ -49,7 +49,7 @@ parser.add_argument('--output_folder', type=str, default='examples_cartoon')
 
 opt_parser = parser.parse_args()
 
-
+# python drive_cartoon.py --jpg womanteacher.jpg --jpg_bg womanteacher_bg.jpg
 
 class Drive_Cartoon():
     def __init__(self, data_dir="examples"):
@@ -57,6 +57,7 @@ class Drive_Cartoon():
         self.c = AutoVC_mel_Convertor(data_dir, autovc_model_path=opt_parser.load_AUTOVC_name)
         self.DEMO_CH = opt_parser.jpg.split('.')[0]
         self.shape_3d = np.loadtxt('examples_cartoon/{}_face_close_mouth.txt'.format(self.DEMO_CH))
+        # self.shape_3d = np.loadtxt('examples_cartoon/{}_face_close_mouth.txt'.format("bluehead"))
         self.model = Audio2landmark_model(opt_parser,
                                           jpg_shape=self.shape_3d,
                                           build_data=False,  # 先不创建数据集, 等__run__()中处理完audio数据之后再创建数据集
@@ -114,7 +115,6 @@ class Drive_Cartoon():
             os.remove(os.path.join('{}'.format(self.data_dir), 'tmp.wav'))
 
         return au_data, au_emb
-
 
     def buffle_creation(self, au_data):
         fl_data = []
@@ -187,18 +187,25 @@ class Drive_Cartoon():
 
             fls = fl.reshape((-1, 68, 3))
 
+            # for cur_fls in fls:
+            #     self._2d_vis(cur_fls)
+
             fls[:, :, 0:2] = -fls[:, :, 0:2]  # 坐标系转换(其实这里的坐标系转换只是因为scale是负数)
             fls[:, :, 0:2] = fls[:, :, 0:2] / scale  # 尺度还原
             fls[:, :, 0:2] -= shift.reshape(1, 2)  # 平移
 
-            # 这个是与原图是吻合的
-            # vis_fl = fls.reshape(-1, 68, 3)[:, :, :2][0]
-            # vis_2dpoints(image, vis_fl[0])
+            # 可视化预测出来的点
+            # vis_fl = fls.reshape(-1, 68, 3)[:, :, :2]
+            # image = np.array(np.zeros((512, 512, 3)), dtype=np.uint8)
+            # for cur_vis_fl in vis_fl:
+            #     self.vis_2dpoints(image, cur_vis_fl)
 
-            # shape_2d = shape_3d[:, :2]
+            # 可视化std 2d
+            # shape_2d = -self.shape_3d[:, :2]
             # shape_2d = shape_2d / scale
             # shape_2d -= shift.reshape(1, 2)
-            # vis_2dpoints(image, shape_2d)
+            # image = np.array(np.zeros((512, 512, 3)), dtype=np.uint8)
+            # self.vis_2dpoints(image, shape_2d)
 
             fls = fls.reshape(-1, 204)
 
@@ -246,7 +253,9 @@ class Drive_Cartoon():
             # static_points.txt
             # 这个是张嘴的点, 这是个非常直观的点, 与图片对应没有进行任何缩放和平移
             static_frame = np.loadtxt(os.path.join('examples_cartoon', '{}_face_open_mouth.txt'.format(self.DEMO_CH)))
-            # vis_2dpoints(image, static_frame)
+
+            # image = np.array(np.zeros((512, 512, 3)), dtype=np.uint8)
+            # self.vis_2dpoints(image, static_frame)
             # assert False
             static_frame_2d = static_frame[r, 0:2]
             static_frame_2d = np.concatenate((static_frame_2d, bound.reshape(-1, 2)), axis=0)
